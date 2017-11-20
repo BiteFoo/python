@@ -3,10 +3,11 @@ import sys
 import os
 import struct
 import binascii
-from dex.paramters import ProtoParameter
-from dex.field import FieldIdx
-from dex import methods
-from dex.methods import MethodIdx
+
+from python.dexparse.dex.class_defs import ClassDefs
+from python.dexparse.dex.field import FieldIdx
+from python.dexparse.dex.methods import MethodIdx
+from python.dexparse.dex.paramters import ProtoParameter
 
 '''
 unsigned char uint8_t;
@@ -241,7 +242,7 @@ class DexHeader():
         计算uleb128的长度
         '''
 #         print ('====================read_uleb128=========================')
-        result = struct.unpack('i',self.fd.read(struct.calcsize('i')).ljust(4,'\0'))[0]
+        result = struct.unpack('i',self.fd.read(struct.calcsize('i')).ljust(4,b'\0'))[0]
         result = result & 0x000000ff #这里取出代表uleb128的字符数据长度，只取最后一个字节，最后一个字节为string_item_data的长度
         self.fd.seek(-3,1)#保证每次都能完后添加一个字节 例如在一开始读取的为 aa bb cc dd ee ff 一次读取四个字节 ，aa bb cc dd --> 下一次
         #读取  bb cc dd ee 每次都往后移动一个字节 
@@ -448,13 +449,58 @@ class DexHeader():
             self.method_idx_list.append(method_obj)
             self.method_idx_dict[count] = method_obj
             count +=1
-        self.show_method_idx_item_data()
+        # self.show_method_idx_item_data()
         pass
     def read_class_defs_idx_data(self):
         '''
         读取class_defx_idx数据内容
         '''
+        self.mprint('offset',hex(self.class_defs_idx_offset))
         self.fd.seek(self.class_defs_idx_offset,0)
+
+        count =0
+        fmt ='I'
+        self.class_def_item_list =[]
+        self.class_def_item_dict={}
+        while count < self.class_defs_idx_size:
+            class_def_item = ClassDefs()
+            class_def_item.class_idx =struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.access_flag = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.superclass_idx = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.interface_offset = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.source_file_idx = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.annotation_idx = struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.class_data_off = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.static_value_offset = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            self.class_def_item_list.append(class_def_item)
+            self.class_def_item_dict[count] = class_def_item
+            count +=1
+        # for item in self.class_def_item_list:#使用list的方式输出
+        #     if isinstance(item,ClassDefs):
+        #         self.mprint('class_idx ',hex(item.class_idx))
+        #         self.mprint('accessflag ', hex(item.access_flag))
+        #         self.mprint('superclass ', hex(item.superclass_idx))
+        #         self.mprint('interface_idx ', hex(item.interface_offset))
+        #         self.mprint('source_file_idx ', hex(item.source_file_idx))
+        #         self.mprint('class_data_item ', hex(item.class_data_off))
+        #         self.mprint('static_value_off ', hex(item.static_value_offset))
+        #         print('--*--'*20)
+        #     pass
+        for count_idx in self.class_def_item_dict.keys():#使用字典的方式输出
+            self.mprint('class_idx_count',count_idx)
+            item = self.class_def_item_dict[count_idx]
+            if isinstance(item,ClassDefs):
+                self.mprint('class_idx ',hex(item.class_idx))
+                self.mprint('accessflag ', hex(item.access_flag))
+                self.mprint('superclass ', hex(item.superclass_idx))
+                self.mprint('interface_idx ', hex(item.interface_offset))
+                self.mprint('source_file_idx ', hex(item.source_file_idx))
+                self.mprint('annotation_idx',hex(item.annotation_idx))
+                self.mprint('class_data_item ', hex(item.class_data_off))
+                self.mprint('static_value_off ', hex(item.static_value_offset))
+                print('=***='*20)
+
+
         
         
         pass
@@ -473,4 +519,5 @@ dexheader.read_type_idx_datas()
 dexheader.read_proto_idx_datas()
 dexheader.read_field_idx_datas()
 dexheader.read_method_idx_datas()
+dexheader.read_class_defs_idx_data()
 dexheader.close_dexreader()    #关闭资源
