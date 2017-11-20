@@ -1,3 +1,6 @@
 eclipse.preferences.version=1
+encoding//dex/field.py=UTF-8
+encoding//dex/methods.py=UTF-8
+encoding//dex/paramters.py=UTF-8
 encoding//dex/parse.py=UTF-8
 encoding//dex/thread.py=UTF-8

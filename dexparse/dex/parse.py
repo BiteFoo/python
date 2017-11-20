@@ -3,9 +3,13 @@ import sys
 import os
 import struct
 import binascii
+from dex.paramters import ProtoParameter
+from dex.field import FieldIdx
+from dex import methods
+from dex.methods import MethodIdx
 
 '''
-unsigned char uint8_tt;
+unsigned char uint8_t;
 unsigend short uint16_t;
 unsigned int  uint32_t;
 unsigned long long uint64_t;
@@ -55,6 +59,9 @@ uint          data_offset;
 
 }
 
+主要参考：
+http://mybeibei.net/1103.html 
+
 '''
 
 print ("解析dex文件内容")
@@ -65,12 +72,14 @@ class DexHeader():
         if not os.path.isfile(self.dexfile):
             raise Exception("{} is not file or not exists".format(self.dexfile))
         self.fd = open(self.dexfile,'rb')
+        self.strings_datas_list =[] #保存所有的字符数据集合
+        self.string_datas_dict ={}
         #控制输出变量
         self.log_type_debug =1
         self.log_type_error =-1
         #
-        self.string_item_datas_offset_list=set()#使用集合的方式，保证不为重复值
-         
+        self.string_item_datas_offset_list=[]#使用集合的方式，保证不为重复值
+
     def mprint(self,tag,msg,log_type=1):
         if log_type == self.log_type_debug:
             print ("[DEBUG]: {} = {}  ".format(tag,msg))
@@ -203,7 +212,7 @@ class DexHeader():
         while index_id < self.string_idx_size:
             #每个string_item_data_offset占4个自己 ，选择为I
             string_item_data_offset = struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0]
-            self.string_item_datas_offset_list.add(string_item_data_offset)
+            self.string_item_datas_offset_list.append(string_item_data_offset)
 #             self.mprint('string_item_data_offset', hex(string_item_data_offset)) #输出16进制格式
             index_id +=1
 #             break
@@ -211,59 +220,257 @@ class DexHeader():
         self.mprint('all string_item_offset ', index_id)
         if self.string_item_datas_offset_list.__len__() == self.string_idx_size:
             self.mprint('read string_item_data_offset ', 'successful')
+            for offset  in self.string_item_datas_offset_list:
+                if '0x20e' == hex(offset):
+                     print ('----------found item mmmm {}'.format(offset))
+                self.read_string_item_datas(offset)
+#       #输出结果  
+#             if self.string_datas_dict != None :#字典的形式保存，使用offset作为key ,value就是读取的结果值
+#                 for offset in self.string_datas_dict.keys():
+#                     self.mprint('offset', hex(offset))
+#                     self.mprint('string_data', binascii.b2a_hex(self.string_datas_dict[offset]))
+#             if self.strings_datas_list.__len__() >0 and self.strings_datas_list != None: #列表保存所有的字符
+#                 for strings in self.strings_datas_list:
+#                     self.mprint('strings_item', strings)
+    #                 break
             #在这里解析出每一个item的数据
         else: #读取数据出现缺失
             self.mprint('read string_item_data_offset', 'failed', log_type=self.log_type_error)
-    def read_string_item_datas(self):
+    def read_uleb128(self):
         '''
-        读取每一个string_item_data,如下结构
-        
-        struct string_item_data{}
-        uleb128 size;
-        u1 data[size]
-        };
-        解析出size ,然后读取后面的字符，转换为ascii 
-        在dex文件结构中说明了，每一个字符串的长度是使用uleb128（可变长度的大小）来计算。
-        这里首先计算出size，同时，每个字符串
-        的结尾使用00来作为标记。
+        计算uleb128的长度
         '''
-        pass
-        
-        pass
+#         print ('====================read_uleb128=========================')
+        result = struct.unpack('i',self.fd.read(struct.calcsize('i')).ljust(4,'\0'))[0]
+        result = result & 0x000000ff #这里取出代表uleb128的字符数据长度，只取最后一个字节，最后一个字节为string_item_data的长度
+        self.fd.seek(-3,1)#保证每次都能完后添加一个字节 例如在一开始读取的为 aa bb cc dd ee ff 一次读取四个字节 ，aa bb cc dd --> 下一次
+        #读取  bb cc dd ee 每次都往后移动一个字节 
+        if result >0x7f: #如果大于0x7f，那么需要第二个字节
+            cur = struct.unpack('i',self.fd.read(struct.calcsize('i')))[0]
+            cur  = cur & 0x000000ff #取出最低位的字节序
+            result =(result &0x7f) |((cur &0x7f) <<7)
+            self.fd.seek(-3,1)
+            if cur >0x7f:  #第三个字节
+                cur = struct.unpack('i',self.fd.read(struct.calcsize('i')))[0]
+                cur = cur & 0x000000ff
+                result = (result  & 0x7f) | ((cur & 0x7f) <<14)
+                self.fd.seek(-3,1)
+                if cur >0x7f:#第四个字节
+                    cur = struct.unpack('i',self.fd.read(struct.calcsize('i')))[0]
+                    cur = cur & 0x000000ff #取出最低位的字节
+                    result =(result & 0x7f) | ((cur & 0x7f) << 21)
+                    self.fd.seek(-3,1)
+                    if cur > 0x7f: #第5个字节
+                        cur = struct.unpack('i',self.fd.read(struct.calcsize('i')))[0]
+                        cur = cur &0x0000ff
+                        result = result |cur<<28
+        return result 
+
+    def read_string_item_datas(self,offset):
+        '''
+        读取string_items_data
+        '''
+#         print ('====================read_string_item_datas=========================')
+#         offset = 746047 #测试使用超过了0x7f的值
+#         self.mprint('offset', hex(offset))
+        self.fd.seek(offset,0)
+        uleb12_size =  self.read_uleb128()
+        if uleb12_size =='\x00':
+            print ('**************found \x00************>>offset = {},uleb128_size={}'.format(offset,uleb12_size))
+            sys.exit(1)
+            return
+#         self.mprint('uleb128 size', hex(uleb12_size))
+        #读取指定长度的字符数据
+        string_data = self.fd.read(uleb12_size) #为什么在读取的时候没有包含到长度位置的值，因为在使用read_uleb128的时候，使用了file.seek(-3,1)
+        #每次都能完后移动一个单位
+        #
+        fmt = str(uleb12_size)+'s'
+        result = struct.unpack(fmt,string_data)[0]
+#         self.mprint('string_data', result) #字符数据，需要转为ascii值，才能读取
+        self.strings_datas_list.append(result)
+        self.string_datas_dict[offset] = result
     def read_type_idx_datas(self):
         '''
-        读取dex文件的type_idx的数据内容 数据类型
-        根据string_idx_offset 定位到string_idx的常量地址，根据
-        string_item_data {
-         
+        读取dex文件的type_idx的数据内容 数据类型,每个
+        
+        typy_item{
+        u4 description ;这里指向的是string的表，表示每个类型值
         }
         '''
         print ('====================read_type_idx_datas=========================')
+        self.type_item_list=[]
+        self.fd.seek(self.type_idx_offset,0)#首先，保证游标读取到指定位置的首页
+        index_item =0
+        while index_item < self.type_idx_size:
+            type_item  = struct.unpack('I',self.fd.read(struct.calcsize('I')))[0]
+            self.type_item_list.append(type_item)
+            index_item +=1
+        idx =0
+        for item in self.type_item_list:
+            self.mprint('type_item', hex(item))
+            if '0x20e' == hex(item):
+                self.mprint('found item', item)
+                while idx < self.string_item_datas_offset_list.__len__():
+                    idx +=1
+                    if idx == 0x20e: #根据type_idx的索引值，找到string_idx_list的序列号(从0~string_idx_list_len)的长度，然后找到对应的offset，最后根据offset取出值
+                        offset=self.string_item_datas_offset_list[idx]
+                        value = self.string_datas_dict[offset]
+                        self.mprint('found type value',value)
+                        break
+                break        
+        pass
+
+    
+    def show_proto_paramters_list(self):
+        '''
+        读取每一个方法参数的列表类型值
+        '''
+        if self.proto_idx_obj_list == None or self.proto_idx_obj_list.__len__() <=0:
+            self.mprint('show_proto_paramters_list', 'show_proto_paramters_list is None ',log_type=self.log_type_error)
+            return 
+        if self.proto_idx_obj_dict == None :
+            self.mprint('proto_idx_obj_dict', 'proto_idx_obj_dict is None ',log_type=self.log_type_error)
+            return 
+#         for obj in self.proto_idx_obj_list: #使用list的方式输出，不能较好的记录到每个proto_item的索引号
+#             self.mprint('shorty_idx', hex(obj.shorty_idx))
+#             self.mprint('returnty_idx', hex(obj.return_type_idx ))
+#             self.mprint('paramters_offset', hex( obj.parameter_type_offset))#这里的每个offset都指向了一个type_list
+#             if obj.parameter_type_offset != 0x0:
+#                 self.fd.seek(obj.parameter_type_offset,0)
+#                 type_size = struct.unpack('I',self.fd.read(struct.calcsize('I')))[0]
+#                 type_item =  struct.unpack('H',self.fd.read(struct.calcsize('H')))[0] #H表示unsigned char 两个字节 h 表示有符号
+#                 self.mprint('type_size', hex(type_size))
+#                 self.mprint('type_item', hex(type_item))
+#             print ('---'*20)
+#根据每个idx作为所以，刚好能够输出每一个数据项和对应的item项，存在idx位置，可以方便对别数据
+        for index_id in self.proto_idx_obj_dict.keys():#使用list的方式输出，能记录到每个proto_item的索引号
+            self.mprint('proto_item_idx', index_id)
+            proto_item = self.proto_idx_obj_dict[index_id]
+            self.mprint('shorty_idx', hex(proto_item.shorty_idx))
+            self.mprint('returnty_idx', hex(proto_item.return_type_idx ))
+            self.mprint('paramters_offset', hex( proto_item.parameter_type_offset))#这里的每个offset都指向了一个type_list
+            if proto_item.parameter_type_offset != 0x0:
+                tmp_idx =0
+                self.fd.seek(proto_item.parameter_type_offset,0)
+                type_size = struct.unpack('I',self.fd.read(struct.calcsize('I')))[0]
+                self.mprint('type_size', hex(type_size))
+                while tmp_idx <type_size:
+                 type_item =  struct.unpack('H',self.fd.read(struct.calcsize('H')))[0] #H表示unsigned char 两个字节 h 表示有符号
+                 self.mprint('type_item_{}'.format(tmp_idx), hex(type_item))
+                 tmp_idx +=1
+            print ('---'*20)
+            
         pass
     def read_proto_idx_datas(self):
         '''
         读取dex文件的proto_idx的数据内容 方法原型
         '''
         print ('====================read_proto_idx_datas=========================')
+        self.proto_idx_obj_list=[]
+        self.proto_idx_obj_dict ={}
+        self.fd.seek(self.proto_idx_offset,0) #
+        count =0
+        fmt='I'
+        while count < self.proto_idx_size:
+            proto_paramters = ProtoParameter()
+            proto_paramters.shorty_idx= struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0] #-->string_idx_list 指向string_idx_list的索引地址
+            proto_paramters.return_type_idx = struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0]#指向type_idx_list的索引号，类似于type_idx索引string_idx_list一样
+            proto_paramters.parameter_type_offset = struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0] #根据paramters_offset读取方法参数列表
+            self.proto_idx_obj_list.append(proto_paramters)
+            self.proto_idx_obj_dict[count] = proto_paramters #这里采用每个idx作为一个索引号，保存在一个字典中，方便后续使用
+            count +=1
+        self.mprint('proto_paramters', self.proto_idx_obj_list.__len__())
+#         self.show_proto_paramters_list() #在这里读取每个对象的数据参数类型值
+        pass
+    def read_field_idx_data(self):
+        '''
+        读取每一个数据项
+        '''
+        if self.field_idx_dict  is None or self.field_idx_list is None or self.field_idx_list.__len__()<=0:
+            self.mprint('read_field_idx_data', 'field_idx_dict or field_idx_list is None ', log_type=self.log_type_error)
+            return
+        for idx in self.field_idx_dict.keys():
+            self.mprint('fied_idx',idx )
+            field_idx_obj = self.field_idx_dict[idx]
+            self.mprint('fied_ix_class_idx', hex(field_idx_obj.class_idx))
+            self.mprint('fied_ix_class_idx', hex(field_idx_obj.type_idx))
+            self.mprint('fied_ix_class_idx', hex(field_idx_obj.name_idx))
+            print ('***'*20)
         pass
     def read_field_idx_datas(self):
         '''
         读取dex文件的field_idx的数据内容
         '''
         print ('====================read_field_idx_datas=========================')
+        self.fd.seek(self.field_idx_offset,0)
+        count =0
+        fmt_2 ='H'
+        fmt_4 = 'I'
+        self.field_idx_list =[] #使用list的方式存放
+        self.field_idx_dict ={} #字典方式存放
+        while count <self.field_idx_size:
+            field_idx_obj = FieldIdx()
+            field_idx_obj.class_idx = struct.unpack(fmt_2,self.fd.read(struct.calcsize(fmt_2)))[0]
+            field_idx_obj.type_idx  = struct.unpack(fmt_2,self.fd.read(struct.calcsize(fmt_2)))[0]
+            field_idx_obj.name_idx  =struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            self.field_idx_list.append(field_idx_obj)
+            self.field_idx_dict[count] = field_idx_obj
+            count +=1
+#         self.read_field_idx_data()
         pass
+    def show_method_idx_item_data(self):
+        if self.method_idx_dict is None:
+            self.mprint('read_method_idx_datas','read_method_idx_datas was failed ',log_type=self.log_type_error)
+            return
+        for idx in self.method_idx_dict.keys():
+            self.mprint('method_idx', idx)
+            method_idx_obj = self.method_idx_dict[idx]
+            self.mprint('method_idx_obj.class_ix', hex(method_idx_obj.class_ix))
+            self.mprint(' method_idx_obj.proto_idx ', hex( method_idx_obj.proto_idx ))
+            self.mprint('method_idx_obj.name_idx', hex(method_idx_obj.name_idx))
+            print ('==='*20)
     def read_method_idx_datas(self):
         '''
         读取dex文件的method_idx的数据内容
         '''
         print ('====================read_method_idx_datas=========================')
+        self.fd.seek(self.method_idx_offset,0)
+        fmt_2 ='H'
+        fmt_4 = 'I'
+        self.method_idx_list=[]
+        self.method_idx_dict ={}
+        count =0
+        while count <self.method_idx_size:
+            method_obj = MethodIdx()
+            method_obj.class_ix = struct.unpack(fmt_2,self.fd.read(struct.calcsize(fmt_2)))[0]
+            method_obj.proto_idx = struct.unpack(fmt_2,self.fd.read(struct.calcsize(fmt_2)))[0]
+            method_obj.name_idx =  struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            self.method_idx_list.append(method_obj)
+            self.method_idx_dict[count] = method_obj
+            count +=1
+        self.show_method_idx_item_data()
+        pass
+    def read_class_defs_idx_data(self):
+        '''
+        读取class_defx_idx数据内容
+        '''
+        self.fd.seek(self.class_defs_idx_offset,0)
+        
+        
         pass
     def close_dexreader(self):
-        self.fd.close()
-        
+        '''
+        关闭流
+        '''
+        if self.fd != None:
+            self.fd.close()
         
 #####      
 dexheader = DexHeader()
 dexheader.parse_dexheader()
 dexheader.read_string_idx_datas()
+dexheader.read_type_idx_datas()
+dexheader.read_proto_idx_datas()
+dexheader.read_field_idx_datas()
+dexheader.read_method_idx_datas()
 dexheader.close_dexreader()    #关闭资源
