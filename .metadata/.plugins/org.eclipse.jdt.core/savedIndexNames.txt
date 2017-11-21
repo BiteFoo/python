@@ -1,0 +1,1 @@
+INDEX VERSION 1.127+D:\eclipse_64bit\workspace\python\.metadata\.plugins\org.eclipse.jdt.core

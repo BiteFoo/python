@@ -1,0 +1,8 @@
+MODULES_MANAGER_V2
+dex.__init__|D:\eclipse_64bit\workspace\python\dexparse\dex\__init__.py
+dex.class_defs|D:\eclipse_64bit\workspace\python\dexparse\dex\class_defs.py
+dex.field|D:\eclipse_64bit\workspace\python\dexparse\dex\field.py
+dex.methods|D:\eclipse_64bit\workspace\python\dexparse\dex\methods.py
+dex.paramters|D:\eclipse_64bit\workspace\python\dexparse\dex\paramters.py
+dex.parse|D:\eclipse_64bit\workspace\python\dexparse\dex\parse.py
+dex.thread|D:\eclipse_64bit\workspace\python\dexparse\dex\thread.py

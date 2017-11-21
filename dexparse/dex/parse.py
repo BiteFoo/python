@@ -4,10 +4,10 @@ import os
 import struct
 import binascii
 
-from python.dexparse.dex.class_defs import ClassDefs
-from python.dexparse.dex.field import FieldIdx
-from python.dexparse.dex.methods import MethodIdx
-from python.dexparse.dex.paramters import ProtoParameter
+from dex.class_defs import ClassDefs, DexClassDataHeader, DexField, DexMethod
+from dex.field import FieldIdx
+from dex.methods import MethodIdx
+from dex.paramters import ProtoParameter
 
 '''
 unsigned char uint8_t;
@@ -69,7 +69,7 @@ print ("解析dex文件内容")
 class DexHeader():
     
     def __init__(self):
-        self.dexfile = sys.path[0]+os.sep+"classes.dex"
+        self.dexfile = sys.path[0]+os.sep+"foo.dex" #
         if not os.path.isfile(self.dexfile):
             raise Exception("{} is not file or not exists".format(self.dexfile))
         self.fd = open(self.dexfile,'rb')
@@ -80,6 +80,9 @@ class DexHeader():
         self.log_type_error =-1
         #
         self.string_item_datas_offset_list=[]#使用集合的方式，保证不为重复值
+        self.method_code_off =[] #记录code的偏移地址
+    def get_method_code_off_list(self):
+        return self.method_code_off
 
     def mprint(self,tag,msg,log_type=1):
         if log_type == self.log_type_debug:
@@ -237,11 +240,12 @@ class DexHeader():
             #在这里解析出每一个item的数据
         else: #读取数据出现缺失
             self.mprint('read string_item_data_offset', 'failed', log_type=self.log_type_error)
-    def read_uleb128(self):
+    def read_uleb128(self,offset=0):
         '''
         计算uleb128的长度
         '''
 #         print ('====================read_uleb128=========================')
+            
         result = struct.unpack('i',self.fd.read(struct.calcsize('i')).ljust(4,b'\0'))[0]
         result = result & 0x000000ff #这里取出代表uleb128的字符数据长度，只取最后一个字节，最后一个字节为string_item_data的长度
         self.fd.seek(-3,1)#保证每次都能完后添加一个字节 例如在一开始读取的为 aa bb cc dd ee ff 一次读取四个字节 ，aa bb cc dd --> 下一次
@@ -426,7 +430,7 @@ class DexHeader():
         for idx in self.method_idx_dict.keys():
             self.mprint('method_idx', idx)
             method_idx_obj = self.method_idx_dict[idx]
-            self.mprint('method_idx_obj.class_ix', hex(method_idx_obj.class_ix))
+            self.mprint('method_idx_obj.class_idx', hex(method_idx_obj.class_idx))
             self.mprint(' method_idx_obj.proto_idx ', hex( method_idx_obj.proto_idx ))
             self.mprint('method_idx_obj.name_idx', hex(method_idx_obj.name_idx))
             print ('==='*20)
@@ -443,7 +447,7 @@ class DexHeader():
         count =0
         while count <self.method_idx_size:
             method_obj = MethodIdx()
-            method_obj.class_ix = struct.unpack(fmt_2,self.fd.read(struct.calcsize(fmt_2)))[0]
+            method_obj.class_idx = struct.unpack(fmt_2,self.fd.read(struct.calcsize(fmt_2)))[0]
             method_obj.proto_idx = struct.unpack(fmt_2,self.fd.read(struct.calcsize(fmt_2)))[0]
             method_obj.name_idx =  struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
             self.method_idx_list.append(method_obj)
@@ -451,10 +455,118 @@ class DexHeader():
             count +=1
         # self.show_method_idx_item_data()
         pass
+    def read_class_data_item_by_class_data_off(self,class_data_off):
+            if class_data_off == 0x0:
+                    #表明这里是接口类，没有方法体
+                self.mprint('interface','found interface class object')
+                return 
+            self.fd.seek(class_data_off)#跳转到指定的类位置
+            static_field_size = self.read_uleb128()
+            instance_field_size = self.read_uleb128()
+            direct_method_size = self.read_uleb128()
+            virtual_method_size = self.read_uleb128()
+            
+            self.mprint('static field size', static_field_size)
+            static_field_idx =0
+            while static_field_size>0:
+                static_field_diff = self.read_uleb128()
+                self.mprint('static field ', self.field_idx_list[static_field_idx +static_field_diff])
+                static_field_idx += static_field_diff
+                access_flags = self.read_uleb128()
+                static_field_size -=1
+                print ('++++'*20)
+            self.mprint('instance field size ', instance_field_size)
+            instance_field_idx =0
+            while instance_field_size >0:
+                instance_field_diff = self.read_uleb128()
+                self.mprint('instance field', self.field_idx_list[instance_field_idx + instance_field_diff])
+                instance_field_idx +=instance_field_diff
+                access_flags = self.read_uleb128()
+                instance_field_size -=1
+                print ('----'*20)
+            self.mprint('direct method size', direct_method_size)
+            direct_method_idx =0
+            while direct_method_size >0:
+                direct_method_diff = self.read_uleb128()
+                self.mprint('direct  method diff', hex(direct_method_diff))
+                method_idx_obj = self.method_idx_list[direct_method_idx + direct_method_diff]
+                if isinstance(method_idx_obj,MethodIdx):
+                    self.mprint('direct method class_idx ',method_idx_obj.class_idx )
+                    self.mprint('direct method proto_idx ',self.proto_idx_obj_list[method_idx_obj.proto_idx] )
+                    self.mprint('direct method name_idx ',self.strings_datas_list[method_idx_obj.name_idx] )
+                direct_method_idx += direct_method_diff
+                access_flags =self.read_uleb128()
+                self.mprint('direct  method access_flags ', hex(access_flags))
+                code_off = self.read_uleb128()
+                self.mprint('direct method code_off ', hex(code_off))
+                #这里要把文件读取的游标对象保存记录地址，方便读取一个code的时候，直接返回到当前位置，下一次读取就不会出现异常
+                self.method_code_off.append(code_off)
+#                 self.read_code_item_code(code_off)
+#                 self.fd.seek(code_off,0)
+                direct_method_size -=1
+                print ('===='*20)
+            self.mprint('virtual method size', virtual_method_size)
+            virtal_method_idx =0
+            while virtual_method_size >0:
+                virtual_method_diff = self.read_uleb128()
+                self.mprint('virutal method diff', hex(virtual_method_diff))
+                self.mprint('virtual  method ', self.method_idx_list[virtal_method_idx+virtual_method_diff])
+                virtal_method_idx +=virtual_method_diff
+                access_flags = self.read_uleb128()
+                self.mprint('virtual  method access_flags ', hex(access_flags))
+                code_off = self.read_uleb128()
+#                 self.read_code_item_code(code_off)
+                self.mprint('virtual method code_off ', hex(code_off))
+                virtual_method_size -=1
+                print ('--**--'*20)
+    def read_code_item_code(self,code_off):
+        '''
+        在这里读取出每个方法的指令值
+        '''
+        if code_off == 0x0:
+            '''
+            没有code off
+            '''
+            return
+        self.fd.seek(code_off)
+        fmt_2 = 'H'
+        fmt_4 ='I'
+        method_register_size=struct.unpack(fmt_2,self.fd.read(2))[0]
+        metdhod_ins_size = struct.unpack(fmt_2,self.fd.read(2))[0]
+        method_outs_size =struct.unpack(fmt_2,self.fd.read(2))[0]
+        method_tries_size =struct.unpack(fmt_2,self.fd.read(2))[0]
+        method_debug_info_off = struct.unpack(fmt_4,self.fd.read(4))[0]#debug信息
+        method_insns_size =struct.unpack(fmt_4,self.fd.read(4))[0] #方法指令长度
+        self.mprint('insns_code_size', hex(method_insns_size))
+        while method_insns_size >0:
+            insns_code =struct.unpack(fmt_2,self.fd.read(2))[0] #方法指令
+            self.mprint('insns_code', hex(insns_code))
+            method_insns_size -=1
+#         pass
+    def read_class_defs(self):
+        '''
+        读取类型信息 ************************************************************************
+        '''
+        count =0
+        while count < self.class_defs_idx_size:
+            self.fd.seek(self.class_defs_idx_offset + count*32)
+            class_idx,\
+            access_flags,\
+            superclass_idx,\
+            interfaces_off,\
+            source_file_idx,\
+            annotations_off,\
+            class_data_off,\
+            static_values_off = struct.unpack("IIIIIIII",self.fd.read(32))
+            self.mprint('class', self.type_item_list[class_idx])
+            count +=1
+            self.read_class_data_item_by_class_data_off(class_data_off) #读取class_data_item
+        pass
     def read_class_defs_idx_data(self):
         '''
-        读取class_defx_idx数据内容
+        读取class_defx_idx数据内容,读取有问题，暂时不适用
         '''
+        print ('====================read_class_defs_idx_data=========================')
         self.mprint('offset',hex(self.class_defs_idx_offset))
         self.fd.seek(self.class_defs_idx_offset,0)
 
@@ -469,7 +581,7 @@ class DexHeader():
             class_def_item.superclass_idx = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
             class_def_item.interface_offset = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
             class_def_item.source_file_idx = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
-            class_def_item.annotation_idx = struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.annotation_idx_off = struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0]
             class_def_item.class_data_off = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
             class_def_item.static_value_offset = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
             self.class_def_item_list.append(class_def_item)
@@ -487,22 +599,181 @@ class DexHeader():
         #         print('--*--'*20)
         #     pass
         for count_idx in self.class_def_item_dict.keys():#使用字典的方式输出
+            
             self.mprint('class_idx_count',count_idx)
             item = self.class_def_item_dict[count_idx]
+            
             if isinstance(item,ClassDefs):
+                
                 self.mprint('class_idx ',hex(item.class_idx))
                 self.mprint('accessflag ', hex(item.access_flag))
+                
                 self.mprint('superclass ', hex(item.superclass_idx))
                 self.mprint('interface_idx ', hex(item.interface_offset))
+                
                 self.mprint('source_file_idx ', hex(item.source_file_idx))
-                self.mprint('annotation_idx',hex(item.annotation_idx))
+                self.mprint('annotation_idx_off',hex(item.annotation_idx_off))
+                
                 self.mprint('class_data_item ', hex(item.class_data_off))
+                self.read_class_data_item(item.class_data_off)
+                
                 self.mprint('static_value_off ', hex(item.static_value_offset))
+                
                 print('=***='*20)
-
-
+        pass
+    def read_dex_class_data_header(self,offset):
+        fmt_4 ='I'
+        #dexclassdataheader
+        self.fd.seek(offset,0)
+        dex_class_data_header = DexClassDataHeader()
+        dex_class_data_header.static_fileds_size =  struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        dex_class_data_header.instance_fileds_size = struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        dex_class_data_header.direct_methods_size = struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        dex_class_data_header.virtual_methods_size =  struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        pass
+    def read_dex_field(self,offset,is_static=False):
+        #dexfiled
+        self.fd.seek(offset,0)
+        fmt_4 ='I'
+        if is_static: #静态属性
+            static_dexfield = DexField()
+            static_dexfield.field_idx =  struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            static_dexfield.access_flags = struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        else:#实例属性
+            instance_dexfield = DexField()
+            instance_dexfield.field_idx = struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            instance_dexfield.access_flags= struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        pass
+    def read_dex_method(self,offset,is_direct=False):
+          #dexmethod
+        self.fd.seek(offset,0)
+        fmt_4 ='I'
+        if is_direct:
+            direct_dexmethod = DexMethod()
+            direct_dexmethod.method_idx= struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            direct_dexmethod.access_flags =  struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            direct_dexmethod.code_off = struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        else:
+            instance_dexmethod = DexMethod()
+            instance_dexmethod.method_idx= struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            instance_dexmethod.access_flags =  struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            instance_dexmethod.code_off = struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            self.mprint('instance_dexmethod.method_idx', instance_dexmethod.method_idx)
+            self.mprint('instance_dexmethod.access_flags', instance_dexmethod.access_flags)
+            self.mprint('instance_dexmethod.code_off', instance_dexmethod.method_idx)
+            print ('--**--'*20)
+            
+        pass
+    def read_class_data_item(self,class_data_off):
+        '''
+        解析出class_data_off的数据值
+        '''
+        self.fd.seek(class_data_off,0)
+        fmt_2 ='H'
+        fmt_4 ='I'
+        #
+        
+        #class_data_header
+        dex_class_data_header = DexClassDataHeader()  #所有的数据都是uleb128类型，因此需要读取每一个数据单元
+        dex_class_data_header.static_fileds_size =  self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        dex_class_data_header.instance_fileds_size = self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        dex_class_data_header.direct_methods_size = self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        dex_class_data_header.virtual_methods_size = self.read_uleb128()# struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        
+        self.mprint('dex_class_data_header.static_fileds_size', hex(dex_class_data_header.static_fileds_size))
+        self.mprint('dex_class_data_header.instance_fileds_size', hex(dex_class_data_header.instance_fileds_size))
+        self.mprint('dex_class_data_header.direct_methods_size', hex(dex_class_data_header.direct_methods_size))
+        self.mprint('dex_class_data_header.virtual_methods_size', hex(dex_class_data_header.virtual_methods_size))
+        
+        print ('=-='*25)
+        if dex_class_data_header.static_fileds_size != 0x0:
+            for count in dex_class_data_header.static_fileds_size:
+                static_dexfield = DexField()
+                static_dexfield.field_idx =  self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+                static_dexfield.access_flags = self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        else: #==0
+            
+            static_dexfield = DexField()
+            static_dexfield.field_idx =  self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            static_dexfield.access_flags = self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        count =0
+        if dex_class_data_header.instance_fileds_size !=0x0 : # == 0 的情况
+            while count < dex_class_data_header.instance_fileds_size:
+                instance_dexfield = DexField()
+                instance_dexfield.field_idx = self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+                instance_dexfield.access_flags= self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+                count +=1
+        else:
+            instance_dexfield = DexField()
+            instance_dexfield.field_idx = self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            instance_dexfield.access_flags= self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+        print ('**--**'*20)
+        count =0
+        if  dex_class_data_header.direct_methods_size !=0x0 :
+           print ('--------direct method size >0')
+           while count< dex_class_data_header.direct_methods_size:
+                direct_dexmethod = DexMethod()
+                direct_dexmethod.method_idx= self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+                direct_dexmethod.access_flags =  self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+                direct_dexmethod.code_off = self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+                self.mprint('direct_dexmethod.method_idx', hex(direct_dexmethod.method_idx))
+                self.mprint('direct_dexmethod.access_flags', hex(direct_dexmethod.access_flags))
+                self.mprint('direct_dexmethod.code_off', hex(direct_dexmethod.method_idx))
+                count +=1
+                print ('++**++'*20)
+        else:# ==0
+            print ('--------direct method size ==0')
+            direct_dexmethod = DexMethod()
+            direct_dexmethod.method_idx= self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            direct_dexmethod.access_flags =  self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            direct_dexmethod.code_off = self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            self.mprint('direct_dexmethod.method_idx', hex(direct_dexmethod.method_idx))
+            self.mprint('direct_dexmethod.access_flags', hex(direct_dexmethod.access_flags))
+            self.mprint('direct_dexmethod.code_off', hex(direct_dexmethod.method_idx))
+            print ('++**++'*20)
+        count =0
+        if dex_class_data_header.virtual_methods_size != 0x0:
+            print ('--------virtual method size >0')
+            while count < dex_class_data_header.virtual_methods_size:
+                virtual_dexmethod = DexMethod()
+                virtual_dexmethod.method_idx= self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+                virtual_dexmethod.access_flags = self.read_uleb128()# struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+                virtual_dexmethod.code_off = self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+                self.mprint('virtual_dexmethod.method_idx', hex(virtual_dexmethod.method_idx))
+                self.mprint('virtual_dexmethod.access_flags',hex( virtual_dexmethod.access_flags))
+                self.mprint('virtual_dexmethod.code_off', hex(virtual_dexmethod.method_idx))
+                count +=1
+                print ('--**--'*20)
+        else:
+            print ('--------virtual method size ==0')
+            virtual_dexmethod = DexMethod()
+            virtual_dexmethod.method_idx= self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            virtual_dexmethod.access_flags = self.read_uleb128()# struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            virtual_dexmethod.code_off = self.read_uleb128()#struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            self.mprint('virtual_dexmethod.method_idx', hex(virtual_dexmethod.method_idx))
+            self.mprint('virtual_dexmethod.access_flags',hex( virtual_dexmethod.access_flags))
+            self.mprint('virtual_dexmethod.code_off', hex(virtual_dexmethod.method_idx))
+            print ('--**--'*20)
+        
+#         class_data_header_off = struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+#         self.mprint('class_data_header_off', hex(class_data_header_off))
+#         self.read_dex_class_data_header(class_data_header_off)
+#         
+#         static_field_idx =struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+#         self.read_dex_field(static_field_idx, is_static=True)
+#         
+#         instance_field_idx =struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+#         self.read_dex_field(instance_field_idx, is_static=False)
+#         
+#         direct_method_idx =struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+#         self.read_dex_method(direct_method_idx, is_direct=True)
+#         
+#         virtual_method_idx =struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+#         self.read_dex_method(direct_method_idx, is_direct=False)
         
         
+        
+      
         pass
     def close_dexreader(self):
         '''
@@ -512,6 +783,30 @@ class DexHeader():
             self.fd.close()
         
 #####      
+
+def print_code_off(code_off_list):
+    '''
+    打印指令放法指令
+    '''
+    dex =sys.path[0]+os.sep+"foo.dex" #
+    with open(dex,'rb') as fd:
+        for code_off in code_off_list:
+            fd.seek(code_off,0)
+            fmt_4 ='I'
+            fmt_2 ='H'
+            method_register_size=struct.unpack(fmt_2,fd.read(2))[0]
+            metdhod_ins_size = struct.unpack(fmt_2,fd.read(2))[0]
+            method_outs_size =struct.unpack(fmt_2,fd.read(2))[0]
+            method_tries_size =struct.unpack(fmt_2,fd.read(2))[0]
+            method_debug_info_off = struct.unpack(fmt_4,fd.read(4))[0]#debug信息
+            method_insns_size =struct.unpack(fmt_4,fd.read(4))[0] #方法指令长度
+            print('insns_code_size', hex(method_insns_size))
+            while method_insns_size >0:
+                insns_code =struct.unpack(fmt_2,fd.read(2))[0] #方法指令
+                print('insns_code', hex(insns_code))
+                method_insns_size -=1
+            
+
 dexheader = DexHeader()
 dexheader.parse_dexheader()
 dexheader.read_string_idx_datas()
@@ -519,5 +814,16 @@ dexheader.read_type_idx_datas()
 dexheader.read_proto_idx_datas()
 dexheader.read_field_idx_datas()
 dexheader.read_method_idx_datas()
-dexheader.read_class_defs_idx_data()
-dexheader.close_dexreader()    #关闭资源
+dexheader.read_class_defs()
+# dexheader.read_class_defs_idx_data()
+
+dexheader.close_dexreader()
+method_code_off = dexheader.get_method_code_off_list()
+print ('888888888888888888888888888')
+print (method_code_off)
+print_code_off(method_code_off)
+
+ 
+
+   
+   #关闭资源

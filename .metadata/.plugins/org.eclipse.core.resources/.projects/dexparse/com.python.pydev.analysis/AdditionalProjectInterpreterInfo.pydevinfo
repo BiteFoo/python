@@ -1,0 +1,96 @@
+-- VERSION_4
+-- START DISKCACHE_2
+D:\eclipse_64bit\workspace\python\.metadata\.plugins\org.eclipse.core.resources\.projects\dexparse\com.python.pydev.analysis\v2_indexcache
+dex.class_defs|1511243641955195000|D:\eclipse_64bit\workspace\python\dexparse\dex\class_defs.py
+dex.__init__|1510559458321384000|D:\eclipse_64bit\workspace\python\dexparse\dex\__init__.py
+dex.methods|1511251045665527000|D:\eclipse_64bit\workspace\python\dexparse\dex\methods.py
+dex.field|1511169123894520000|D:\eclipse_64bit\workspace\python\dexparse\dex\field.py
+dex.paramters|1511227163871927000|D:\eclipse_64bit\workspace\python\dexparse\dex\paramters.py
+dex.parse|1511253184108848000|D:\eclipse_64bit\workspace\python\dexparse\dex\parse.py
+dex.thread|1510884931070951000|D:\eclipse_64bit\workspace\python\dexparse\dex\thread.py
+-- END DISKCACHE
+-- START DICTIONARY
+30
+19=DexHeader.parse_dexheader
+25=DexClassDataHeader.__init__
+27=DexHeader.read_method_idx_datas
+3=dex.parse
+12=ClassDataItem
+8=ClassDefs
+23=ClassDataItem.__init__
+5=dex.methods
+24=DexHeader.__init__
+6=dex.paramters
+11=DexClassDataHeader
+20=DexHeader.read_class_defs_idx_data
+7=ProtoParameter
+30=DexHeader.read_type_idx_datas
+22=MethodIdx.__init__
+21=FieldIdx.__init__
+9=DexMethod
+29=DexHeader.read_proto_idx_datas
+4=dex.field
+14=DexHeader
+18=ClassDefs.__init__
+2=dex.class_defs
+10=DexField
+26=DexHeader.read_field_idx_datas
+15=FieldIdx
+16=DexMethod.__init__
+17=DexField.__init__
+28=ProtoParameter.__init__
+1=dex.thread
+13=MethodIdx
+-- END DICTIONARY
+-- START TREE 1
+7
+apk|1|apk!11@
+cla|2|ClassDataItem!17@ClassDefs!17@
+dex|5|DexHeader!25@dexheader!27@DexField!17@DexClassDataHeader!17@DexMethod!17@
+fie|1|FieldIdx!33@
+met|1|MethodIdx!41@
+pro|1|ProtoParameter!49@
+unz|1|unzip!10@
+-- END TREE
+-- START TREE 2
+39
+__i|9|__init__!7&50@__init__!8&18@__init__!9&18@__init__!10&18@__init__!11&18@__init__!12&18@__init__!13&42@__init__!14&26@__init__!15&34@
+acc|3|access_flags!16&19@access_flags!17&19@access_flag!18&19@
+ann|1|annotation_idx_off!18&19@
+che|1|checksum!19&27@
+cla|8|class_idx!18&19@class_defs_idx_size!19&27@class_data_off!18&19@class_defs_idx_offset!19&27@class_def_item_list!20&27@class_def_item_dict!20&27@class_idx!21&35@class_idx!22&43@
+clo|1|close_dexreader!14&26@
+cod|1|code_off!16&19@
+dat|2|data_size!19&27@data_offset!19&27@
+dex|6|dex_class_data_header_off!23&19@dex_virtual_methods!23&19@dex_instance_field_idx!23&19@dex_static_field_idx!23&19@dex_direct_methods!23&19@dexfile!24&27@
+dir|1|direct_methods_size!25&19@
+end|1|endia_tag!19&27@
+fd|1|fd!24&27@
+fie|5|field_idx_offset!19&27@field_idx_size!19&27@field_idx_list!26&27@field_idx!17&19@field_idx_dict!26&27@
+fil|1|file_size!19&27@
+hea|1|header_size!19&27@
+ins|1|instance_fileds_size!25&19@
+int|1|interface_offset!18&19@
+lin|2|link_size!19&27@link_offset!19&27@
+log|2|log_type_debug!24&27@log_type_error!24&27@
+mag|1|magic!19&27@
+map|1|map_offset!19&27@
+met|5|method_idx_dict!27&27@method_idx_list!27&27@method_idx_size!19&27@method_idx!16&19@method_idx_offset!19&27@
+mpr|1|mprint!14&26@
+nam|2|name_idx!21&35@name_idx!22&43@
+par|2|parameter_type_offset!28&51@parse_dexheader!14&26@
+pro|5|proto_idx_offset!19&27@proto_idx!22&43@proto_idx_obj_list!29&27@proto_idx_size!19&27@proto_idx_obj_dict!29&27@
+rea|16|read_string_item_datas!14&26@read_type_idx_datas!14&26@read_class_data_item!14&26@read_class_defs_idx_data!14&26@read_class_defs!14&26@read_class_data_item_by_class_data_off!14&26@read_uleb128!14&26@read_field_idx_datas!14&26@read_code_item_code!14&26@read_string_idx_datas!14&26@read_dex_method!14&26@read_method_idx_datas!14&26@read_dex_class_data_header!14&26@read_dex_field!14&26@read_proto_idx_datas!14&26@read_field_idx_data!14&26@
+ret|1|return_type_idx!28&51@
+sho|3|shorty_idx!28&51@show_proto_paramters_list!14&26@show_method_idx_item_data!14&26@
+sig|1|signature!19&27@
+sou|1|source_file_idx!18&19@
+sta|2|static_value_offset!18&19@static_fileds_size!25&19@
+str|5|string_idx_size!19&27@strings_datas_list!24&27@string_datas_dict!24&27@string_item_datas_offset_list!24&27@string_idx_offset!19&27@
+sup|1|superclass_idx!18&19@
+to_|1|to_string!15&34@
+tos|1|tostring!8&18@
+typ|4|type_idx_size!19&27@type_idx_offset!19&27@type_item_list!30&27@type_idx!21&35@
+ver|1|version!19&27@
+vir|1|virtual_methods_size!25&19@
+-- END TREE

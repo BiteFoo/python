@@ -1,0 +1,590 @@
+# -*- coding:UTF-8 -*-
+import sys
+import os
+import struct
+import binascii
+
+from dex.class_defs import ClassDefs, DexClassDataHeader, DexField, DexMethod
+from dex.field import FieldIdx
+from dex.methods import MethodIdx
+from dex.paramters import ProtoParameter
+
+'''
+unsigned char uint8_t;
+unsigend short uint16_t;
+unsigned int  uint32_t;
+unsigned long long uint64_t;
+
+signed char int8_t;
+short int16_t;
+int int32_t;
+long long int64_t;
+
+
+uint8_t u1;
+uint16_t u2;
+uint32_t  u4;
+uint64_t  u8;
+
+int8_t  s1;
+int16_t s2;
+int32_t  s4;
+int64_t   s8;
+
+
+struct DexHeader{
+
+unsigned char[8]     magic;
+uint         checksum; //
+unsigned char[20]     signature;//
+uint          file_size ;
+uint          header_size;
+uint          endia-tag;
+uint           link_size;
+uint            linke_off;
+uint           map_item_off;
+uint             string_idx_size;
+uint             string_idx_offset;
+uint             type_idx_size;
+uint             type_idx_offset;
+uint            prototype_idx_size;
+uuint           prototype_idx_offset;
+uint           field_idx_size   ;
+uint             field_idx_offset;
+uint            method_idx_size;
+uint            method_idx_offset;
+uint           class_defs_size;
+uint           class_defs_offset;
+uint           data_size;
+uint          data_offset;
+
+}
+
+主要参考：
+http://mybeibei.net/1103.html 
+
+'''
+
+print ("解析dex文件内容")
+class DexHeader():
+    
+    def __init__(self):
+        self.dexfile = sys.path[0]+os.sep+"classes.dex"
+        if not os.path.isfile(self.dexfile):
+            raise Exception("{} is not file or not exists".format(self.dexfile))
+        self.fd = open(self.dexfile,'rb')
+        self.strings_datas_list =[] #保存所有的字符数据集合
+        self.string_datas_dict ={}
+        #控制输出变量
+        self.log_type_debug =1
+        self.log_type_error =-1
+        #
+        self.string_item_datas_offset_list=[]#使用集合的方式，保证不为重复值
+
+    def mprint(self,tag,msg,log_type=1):
+        if log_type == self.log_type_debug:
+            print ("[DEBUG]: {} = {}  ".format(tag,msg))
+        elif log_type == self.log_type_error:
+            print ('[ERROR]: {} = {}'.format(tag,msg))
+   
+    def parse_dexheader(self):
+        print ('====================parse_dexheader=========================')
+        if self.fd  is None:
+            raise Exception("[ERROR]: filediscriptor object is None")
+        #magic addr 0
+        fmt = "<4s"
+        self.fd.seek(0)
+        data = self.fd.read(struct.calcsize(fmt))
+        self.magic =  struct.unpack(fmt,data)[0]
+        self.mprint("magic", binascii.b2a_hex(self.magic))
+        # version addr  4
+        self.fd.seek(4)
+        self.version =  struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0]
+        self.mprint('version', binascii.b2a_hex(self.version)) #二进制字符串转为ascci码的16进制
+        #checksum  addr 8 
+        fmt = "<I"
+        self.fd.seek(8)
+        offset = struct.calcsize(fmt)
+        self.checksum = struct.unpack(fmt,self.fd.read(offset))[0]
+        self.mprint('checksum', hex(self.checksum))
+        #signature addr c
+        self.fd.seek(0xc)
+        fmt = "<20s"  #s python中 s表示char[] 表示bytes
+        offset = struct.calcsize(fmt)
+        self.signature = struct.unpack(fmt,self.fd.read(offset))[0]
+        #为了打印出对应的16进制，这里的是字符类型，所有，需要转换为ascii -->hex
+        self.mprint('signatures[20]', str(binascii.b2a_hex(self.signature)))
+        #file_size addr 0x20
+        self.fd.seek(0x20)
+        self.file_size = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('file_size', hex(self.file_size))
+        #header_size  addr 0x24
+        self.fd.seek(0x24)
+        self.header_size = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('header_size', hex(self.header_size))
+        #endia-tag addr 0x28
+        self.fd.seek(0x28)
+        self.endia_tag = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('endia_tag', hex(self.endia_tag))
+        #linke_size addr 0x2c
+        self.fd.seek(0x2c)
+        self.link_size = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('link_size', hex(self.link_size))
+        #link_offset  addr 0x30
+        self.fd.seek(0x30)
+        self.link_offset = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('link_offset', hex(self.link_offset))
+        #map_off addr 0x34
+        self.fd.seek(0x34)
+        self.map_offset = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('map_offset', hex(self.map_offset))
+        #string_idx_sieze addr 0x38
+        self.fd.seek(0x38)
+        self.string_idx_size = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('string_idx_size', hex(self.string_idx_size))
+        #string_idx_offset addr 0x3c
+        self.fd.seek(0x3c)
+        self.string_idx_offset = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('string_idx_size', hex(self.string_idx_offset))
+        #type_idx_size addr 0x40
+        self.fd.seek(0x40)
+        self.type_idx_size =  struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('type_idx_size', hex(self.type_idx_size))
+        #type_idx_size  addr 0x44
+        self.fd.seek(0x44)
+        self.type_idx_offset = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('type_idx_offset', hex(self.type_idx_offset))
+        #proto_idx_size  addr 0x48
+        self.fd.seek(0x48)
+        self.proto_idx_size =  struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('proto_idx_size', hex(self.proto_idx_size))
+        #proto_idx_offset addr 0x4c
+        self.fd.seek(0x4c)
+        self.proto_idx_offset = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('proto_idx_offset', hex(self.proto_idx_offset))
+        #field_idx_size  addr 0x50 
+        self.fd.seek(0x50)
+        self.field_idx_size = struct.unpack("<I",self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('field_idx_size', hex(self.field_idx_size))
+        #field_idx_offset addr 0x54
+        self.fd.seek(0x54)
+        self.field_idx_offset = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('field_idx_offset', hex(self.field_idx_offset))
+        #method_idx_size addr 0x58
+        self.fd.seek(0x58)
+        self.method_idx_size = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('method_idx_size', hex(self.method_idx_size))
+        #method_idx_offset addr  0x5c
+        self.fd.seek(0x5c)
+        self.method_idx_offset = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('metod_idx_offset', hex(self.method_idx_offset))
+        #class_defs_idx_size addr 0x60
+        self.fd.seek(0x60)
+        self.class_defs_idx_size = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('class_defs_idx_size', hex(self.class_defs_idx_size))
+        #class_defs_idx_offset addr 0x64
+        self.fd.seek(0x64)
+        self.class_defs_idx_offset = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('class_defs_idx_offset', hex(self.class_defs_idx_offset))
+        #data_size  addr 0x68
+        self.fd.seek(0x68)
+        self.data_size = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('data_size', hex(self.data_size))
+        #data_offset addr 0x6c
+        self.fd.seek(0x6c)
+        self.data_offset = struct.unpack('<I',self.fd.read(struct.calcsize('<I')))[0]
+        self.mprint('data_offset', hex(self.data_offset))
+        
+    def read_string_idx_datas(self):
+        '''
+        读取dex文件的string_idx的数据内容，读取string字符串的常量池
+        '''
+        print ('====================read string_idx_datas=========================')
+        self.mprint('string_idx_size', self.string_idx_size)
+        self.mprint('string_idx_offset', self.string_idx_offset)
+        if self.string_idx_size <=0 or self.string_idx_offset <= 0:
+            self.mprint('read string idx ', 'data is invalid', log_type=self.log_type_error)
+            return
+        #先输出所有的string_item_data_offset 的地址
+        #首先，fd先跳转到string_idx_offset的地址，然后开始遍历出所有的string_item_data_offset的地址，根据string_idx_size来控制循环
+        self.fd.seek(self.string_idx_offset)
+        index_id =0
+        fmt = '<I' #采用无符号数
+        while index_id < self.string_idx_size:
+            #每个string_item_data_offset占4个自己 ，选择为I
+            string_item_data_offset = struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0]
+            self.string_item_datas_offset_list.append(string_item_data_offset)
+#             self.mprint('string_item_data_offset', hex(string_item_data_offset)) #输出16进制格式
+            index_id +=1
+#             break
+        print ('****************************read string_idx_datas finished*******************************')
+        self.mprint('all string_item_offset ', index_id)
+        if self.string_item_datas_offset_list.__len__() == self.string_idx_size:
+            self.mprint('read string_item_data_offset ', 'successful')
+            for offset  in self.string_item_datas_offset_list:
+                if '0x20e' == hex(offset):
+                     print ('----------found item mmmm {}'.format(offset))
+                self.read_string_item_datas(offset)
+#       #输出结果  
+#             if self.string_datas_dict != None :#字典的形式保存，使用offset作为key ,value就是读取的结果值
+#                 for offset in self.string_datas_dict.keys():
+#                     self.mprint('offset', hex(offset))
+#                     self.mprint('string_data', binascii.b2a_hex(self.string_datas_dict[offset]))
+#             if self.strings_datas_list.__len__() >0 and self.strings_datas_list != None: #列表保存所有的字符
+#                 for strings in self.strings_datas_list:
+#                     self.mprint('strings_item', strings)
+    #                 break
+            #在这里解析出每一个item的数据
+        else: #读取数据出现缺失
+            self.mprint('read string_item_data_offset', 'failed', log_type=self.log_type_error)
+    def read_uleb128(self):
+        '''
+        计算uleb128的长度
+        '''
+#         print ('====================read_uleb128=========================')
+        result = struct.unpack('i',self.fd.read(struct.calcsize('i')).ljust(4,b'\0'))[0]
+        result = result & 0x000000ff #这里取出代表uleb128的字符数据长度，只取最后一个字节，最后一个字节为string_item_data的长度
+        self.fd.seek(-3,1)#保证每次都能完后添加一个字节 例如在一开始读取的为 aa bb cc dd ee ff 一次读取四个字节 ，aa bb cc dd --> 下一次
+        #读取  bb cc dd ee 每次都往后移动一个字节 
+        if result >0x7f: #如果大于0x7f，那么需要第二个字节
+            cur = struct.unpack('i',self.fd.read(struct.calcsize('i')))[0]
+            cur  = cur & 0x000000ff #取出最低位的字节序
+            result =(result &0x7f) |((cur &0x7f) <<7)
+            self.fd.seek(-3,1)
+            if cur >0x7f:  #第三个字节
+                cur = struct.unpack('i',self.fd.read(struct.calcsize('i')))[0]
+                cur = cur & 0x000000ff
+                result = (result  & 0x7f) | ((cur & 0x7f) <<14)
+                self.fd.seek(-3,1)
+                if cur >0x7f:#第四个字节
+                    cur = struct.unpack('i',self.fd.read(struct.calcsize('i')))[0]
+                    cur = cur & 0x000000ff #取出最低位的字节
+                    result =(result & 0x7f) | ((cur & 0x7f) << 21)
+                    self.fd.seek(-3,1)
+                    if cur > 0x7f: #第5个字节
+                        cur = struct.unpack('i',self.fd.read(struct.calcsize('i')))[0]
+                        cur = cur &0x0000ff
+                        result = result |cur<<28
+        return result 
+
+    def read_string_item_datas(self,offset):
+        '''
+        读取string_items_data
+        '''
+#         print ('====================read_string_item_datas=========================')
+#         offset = 746047 #测试使用超过了0x7f的值
+#         self.mprint('offset', hex(offset))
+        self.fd.seek(offset,0)
+        uleb12_size =  self.read_uleb128()
+        if uleb12_size =='\x00':
+            print ('**************found \x00************>>offset = {},uleb128_size={}'.format(offset,uleb12_size))
+            sys.exit(1)
+            return
+#         self.mprint('uleb128 size', hex(uleb12_size))
+        #读取指定长度的字符数据
+        string_data = self.fd.read(uleb12_size) #为什么在读取的时候没有包含到长度位置的值，因为在使用read_uleb128的时候，使用了file.seek(-3,1)
+        #每次都能完后移动一个单位
+        #
+        fmt = str(uleb12_size)+'s'
+        result = struct.unpack(fmt,string_data)[0]
+#         self.mprint('string_data', result) #字符数据，需要转为ascii值，才能读取
+        self.strings_datas_list.append(result)
+        self.string_datas_dict[offset] = result
+    def read_type_idx_datas(self):
+        '''
+        读取dex文件的type_idx的数据内容 数据类型,每个
+        
+        typy_item{
+        u4 description ;这里指向的是string的表，表示每个类型值
+        }
+        '''
+        print ('====================read_type_idx_datas=========================')
+        self.type_item_list=[]
+        self.fd.seek(self.type_idx_offset,0)#首先，保证游标读取到指定位置的首页
+        index_item =0
+        while index_item < self.type_idx_size:
+            type_item  = struct.unpack('I',self.fd.read(struct.calcsize('I')))[0]
+            self.type_item_list.append(type_item)
+            index_item +=1
+        idx =0
+        for item in self.type_item_list:
+            self.mprint('type_item', hex(item))
+            if '0x20e' == hex(item):
+                self.mprint('found item', item)
+                while idx < self.string_item_datas_offset_list.__len__():
+                    idx +=1
+                    if idx == 0x20e: #根据type_idx的索引值，找到string_idx_list的序列号(从0~string_idx_list_len)的长度，然后找到对应的offset，最后根据offset取出值
+                        offset=self.string_item_datas_offset_list[idx]
+                        value = self.string_datas_dict[offset]
+                        self.mprint('found type value',value)
+                        break
+                break        
+        pass
+
+    
+    def show_proto_paramters_list(self):
+        '''
+        读取每一个方法参数的列表类型值
+        '''
+        if self.proto_idx_obj_list == None or self.proto_idx_obj_list.__len__() <=0:
+            self.mprint('show_proto_paramters_list', 'show_proto_paramters_list is None ',log_type=self.log_type_error)
+            return 
+        if self.proto_idx_obj_dict == None :
+            self.mprint('proto_idx_obj_dict', 'proto_idx_obj_dict is None ',log_type=self.log_type_error)
+            return 
+#         for obj in self.proto_idx_obj_list: #使用list的方式输出，不能较好的记录到每个proto_item的索引号
+#             self.mprint('shorty_idx', hex(obj.shorty_idx))
+#             self.mprint('returnty_idx', hex(obj.return_type_idx ))
+#             self.mprint('paramters_offset', hex( obj.parameter_type_offset))#这里的每个offset都指向了一个type_list
+#             if obj.parameter_type_offset != 0x0:
+#                 self.fd.seek(obj.parameter_type_offset,0)
+#                 type_size = struct.unpack('I',self.fd.read(struct.calcsize('I')))[0]
+#                 type_item =  struct.unpack('H',self.fd.read(struct.calcsize('H')))[0] #H表示unsigned char 两个字节 h 表示有符号
+#                 self.mprint('type_size', hex(type_size))
+#                 self.mprint('type_item', hex(type_item))
+#             print ('---'*20)
+#根据每个idx作为所以，刚好能够输出每一个数据项和对应的item项，存在idx位置，可以方便对别数据
+        for index_id in self.proto_idx_obj_dict.keys():#使用list的方式输出，能记录到每个proto_item的索引号
+            self.mprint('proto_item_idx', index_id)
+            proto_item = self.proto_idx_obj_dict[index_id]
+            self.mprint('shorty_idx', hex(proto_item.shorty_idx))
+            self.mprint('returnty_idx', hex(proto_item.return_type_idx ))
+            self.mprint('paramters_offset', hex( proto_item.parameter_type_offset))#这里的每个offset都指向了一个type_list
+            if proto_item.parameter_type_offset != 0x0:
+                tmp_idx =0
+                self.fd.seek(proto_item.parameter_type_offset,0)
+                type_size = struct.unpack('I',self.fd.read(struct.calcsize('I')))[0]
+                self.mprint('type_size', hex(type_size))
+                while tmp_idx <type_size:
+                 type_item =  struct.unpack('H',self.fd.read(struct.calcsize('H')))[0] #H表示unsigned char 两个字节 h 表示有符号
+                 self.mprint('type_item_{}'.format(tmp_idx), hex(type_item))
+                 tmp_idx +=1
+            print ('---'*20)
+            
+        pass
+    def read_proto_idx_datas(self):
+        '''
+        读取dex文件的proto_idx的数据内容 方法原型
+        '''
+        print ('====================read_proto_idx_datas=========================')
+        self.proto_idx_obj_list=[]
+        self.proto_idx_obj_dict ={}
+        self.fd.seek(self.proto_idx_offset,0) #
+        count =0
+        fmt='I'
+        while count < self.proto_idx_size:
+            proto_paramters = ProtoParameter()
+            proto_paramters.shorty_idx= struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0] #-->string_idx_list 指向string_idx_list的索引地址
+            proto_paramters.return_type_idx = struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0]#指向type_idx_list的索引号，类似于type_idx索引string_idx_list一样
+            proto_paramters.parameter_type_offset = struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0] #根据paramters_offset读取方法参数列表
+            self.proto_idx_obj_list.append(proto_paramters)
+            self.proto_idx_obj_dict[count] = proto_paramters #这里采用每个idx作为一个索引号，保存在一个字典中，方便后续使用
+            count +=1
+        self.mprint('proto_paramters', self.proto_idx_obj_list.__len__())
+#         self.show_proto_paramters_list() #在这里读取每个对象的数据参数类型值
+        pass
+    def read_field_idx_data(self):
+        '''
+        读取每一个数据项
+        '''
+        if self.field_idx_dict  is None or self.field_idx_list is None or self.field_idx_list.__len__()<=0:
+            self.mprint('read_field_idx_data', 'field_idx_dict or field_idx_list is None ', log_type=self.log_type_error)
+            return
+        for idx in self.field_idx_dict.keys():
+            self.mprint('fied_idx',idx )
+            field_idx_obj = self.field_idx_dict[idx]
+            self.mprint('fied_ix_class_idx', hex(field_idx_obj.class_idx))
+            self.mprint('fied_ix_class_idx', hex(field_idx_obj.type_idx))
+            self.mprint('fied_ix_class_idx', hex(field_idx_obj.name_idx))
+            print ('***'*20)
+        pass
+    def read_field_idx_datas(self):
+        '''
+        读取dex文件的field_idx的数据内容
+        '''
+        print ('====================read_field_idx_datas=========================')
+        self.fd.seek(self.field_idx_offset,0)
+        count =0
+        fmt_2 ='H'
+        fmt_4 = 'I'
+        self.field_idx_list =[] #使用list的方式存放
+        self.field_idx_dict ={} #字典方式存放
+        while count <self.field_idx_size:
+            field_idx_obj = FieldIdx()
+            field_idx_obj.class_idx = struct.unpack(fmt_2,self.fd.read(struct.calcsize(fmt_2)))[0]
+            field_idx_obj.type_idx  = struct.unpack(fmt_2,self.fd.read(struct.calcsize(fmt_2)))[0]
+            field_idx_obj.name_idx  =struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            self.field_idx_list.append(field_idx_obj)
+            self.field_idx_dict[count] = field_idx_obj
+            count +=1
+#         self.read_field_idx_data()
+        pass
+    def show_method_idx_item_data(self):
+        if self.method_idx_dict is None:
+            self.mprint('read_method_idx_datas','read_method_idx_datas was failed ',log_type=self.log_type_error)
+            return
+        for idx in self.method_idx_dict.keys():
+            self.mprint('method_idx', idx)
+            method_idx_obj = self.method_idx_dict[idx]
+            self.mprint('method_idx_obj.class_ix', hex(method_idx_obj.class_ix))
+            self.mprint(' method_idx_obj.proto_idx ', hex( method_idx_obj.proto_idx ))
+            self.mprint('method_idx_obj.name_idx', hex(method_idx_obj.name_idx))
+            print ('==='*20)
+    def read_method_idx_datas(self):
+        '''
+        读取dex文件的method_idx的数据内容
+        '''
+        print ('====================read_method_idx_datas=========================')
+        self.fd.seek(self.method_idx_offset,0)
+        fmt_2 ='H'
+        fmt_4 = 'I'
+        self.method_idx_list=[]
+        self.method_idx_dict ={}
+        count =0
+        while count <self.method_idx_size:
+            method_obj = MethodIdx()
+            method_obj.class_ix = struct.unpack(fmt_2,self.fd.read(struct.calcsize(fmt_2)))[0]
+            method_obj.proto_idx = struct.unpack(fmt_2,self.fd.read(struct.calcsize(fmt_2)))[0]
+            method_obj.name_idx =  struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
+            self.method_idx_list.append(method_obj)
+            self.method_idx_dict[count] = method_obj
+            count +=1
+        # self.show_method_idx_item_data()
+        pass
+    def read_class_defs_idx_data(self):
+        '''
+        读取class_defx_idx数据内容
+        '''
+        self.mprint('offset',hex(self.class_defs_idx_offset))
+        self.fd.seek(self.class_defs_idx_offset,0)
+
+        count =0
+        fmt ='I'
+        self.class_def_item_list =[]
+        self.class_def_item_dict={}
+        while count < self.class_defs_idx_size:
+            class_def_item = ClassDefs()
+            class_def_item.class_idx =struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.access_flag = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.superclass_idx = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.interface_offset = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.source_file_idx = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.annotation_idx_off = struct.unpack(fmt,self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.class_data_off = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            class_def_item.static_value_offset = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[0]
+            self.class_def_item_list.append(class_def_item)
+            self.class_def_item_dict[count] = class_def_item
+            count +=1
+        # for item in self.class_def_item_list:#使用list的方式输出
+        #     if isinstance(item,ClassDefs):
+        #         self.mprint('class_idx ',hex(item.class_idx))
+        #         self.mprint('accessflag ', hex(item.access_flag))
+        #         self.mprint('superclass ', hex(item.superclass_idx))
+        #         self.mprint('interface_idx ', hex(item.interface_offset))
+        #         self.mprint('source_file_idx ', hex(item.source_file_idx))
+        #         self.mprint('class_data_item ', hex(item.class_data_off))
+        #         self.mprint('static_value_off ', hex(item.static_value_offset))
+        #         print('--*--'*20)
+        #     pass
+        for count_idx in self.class_def_item_dict.keys():#使用字典的方式输出
+            self.mprint('class_idx_count',count_idx)
+            item = self.class_def_item_dict[count_idx]
+            if isinstance(item,ClassDefs):
+                self.mprint('class_idx ',hex(item.class_idx))
+                self.mprint('accessflag ', hex(item.access_flag))
+                self.mprint('superclass ', hex(item.superclass_idx))
+                self.mprint('interface_idx ', hex(item.interface_offset))
+                self.mprint('source_file_idx ', hex(item.source_file_idx))
+                self.mprint('annotation_idx_off',hex(item.annotation_idx_off))
+                self.mprint('class_data_item ', hex(item.class_data_off))
+                self.mprint('static_value_off ', hex(item.static_value_offset))
+                print('=***='*20)
+        pass
+    def read_dex_class_data_header(self,offset):
+        fmt_4 ='I'
+        #dexclassdataheader
+        self.fd.seek(offset,0)
+        dex_class_data_header = DexClassDataHeader()
+        dex_class_data_header.static_fileds_size =  struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        dex_class_data_header.instance_fileds_size = struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        dex_class_data_header.direct_methods_size = struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        dex_class_data_header.virtual_methods_size =  struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        pass
+    def read_dex_field(self,offset,is_static=False):
+        #dexfiled
+        self.fd.seek(offset,0)
+        fmt_4 ='I'
+        if is_static: #静态属性
+            static_dexfield = DexField()
+            static_dexfield.field_idx =  struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            static_dexfield.access_flags = struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        else:#实例属性
+            instance_dexfield = DexField()
+            instance_dexfield.field_idx = struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            instance_dexfield.access_flags= struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        pass
+    def read_dex_method(self,offset,is_direct=False):
+          #dexmethod
+        self.fd.seek(offset,0)
+        fmt_4 ='I'
+        if is_direct:
+            direct_dexmethod = DexMethod()
+            direct_dexmethod.method_idx= struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            direct_dexmethod.access_flags =  struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            direct_dexmethod.code_off = struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        else:
+            instance_dexmethod = DexMethod()
+            instance_dexmethod.method_idx= struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            instance_dexmethod.access_flags =  struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            instance_dexmethod.code_off = struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+            self.mprint('instance_dexmethod.method_idx', instance_dexmethod.method_idx)
+            self.mprint('instance_dexmethod.access_flags', instance_dexmethod.access_flags)
+            self.mprint('instance_dexmethod.code_off', instance_dexmethod.method_idx)
+            
+        pass
+    def read_class_data_item(self,class_data_off):
+        '''
+        解析出class_data_off的数据值
+        '''
+        self.fd.seek(class_data_off,0)
+        fmt_2 ='H'
+        fmt_4 ='I'
+        #
+        class_data_header_off = struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        self.read_dex_class_data_header(class_data_header_off)
+        
+        static_field_idx =struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        self.read_dex_field(static_field_idx, is_static=True)
+        
+        instance_field_idx =struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        self.read_dex_field(instance_field_idx, is_static=False)
+        
+        direct_method_idx =struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        self.read_dex_method(direct_method_idx, is_direct=True)
+        
+        virtual_method_idx =struct.unpack(fmt_4,self.fd.read(fmt_4))[0]
+        self.read_dex_method(direct_method_idx, is_direct=False)
+        
+        
+        
+      
+        pass
+    def close_dexreader(self):
+        '''
+        关闭流
+        '''
+        if self.fd != None:
+            self.fd.close()
+        
+#####      
+
+dexheader = DexHeader()
+dexheader.parse_dexheader()
+dexheader.read_string_idx_datas()
+dexheader.read_type_idx_datas()
+dexheader.read_proto_idx_datas()
+dexheader.read_field_idx_datas()
+dexheader.read_method_idx_datas()
+dexheader.read_class_defs_idx_data()
+
+dexheader.close_dexreader()    #关闭资源

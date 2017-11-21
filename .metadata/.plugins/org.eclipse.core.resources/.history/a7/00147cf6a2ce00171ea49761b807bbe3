@@ -1,0 +1,11 @@
+流程记录文档：
+
+一、如何抽取指令？
+
+步骤：
+1、读取指定的类 根据clas_defs_offset ,class_defs_size 定位到每一个类，同时记录每一个需要记录的类
+
+地址
+
+2、根据类来找到对应的code_off
+3、根据code_off找到对应的insns[]

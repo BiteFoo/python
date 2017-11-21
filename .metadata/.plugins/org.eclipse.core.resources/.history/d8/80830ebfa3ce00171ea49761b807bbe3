@@ -1,0 +1,20 @@
+流程记录文档：
+
+一、如何抽取指令？
+
+每条指令的长度为H（python的二进制数据格式 struct 模块的数据格式） =  unsigned short insns[] 占用2个字节 
+
+如何确定对应关系？
+根据什么作为唯一标识？
+如何排列？在还原的过程中，如何快速定位到被调用的类，并且还原？
+
+步骤：
+
+1、读取指定的类 根据clas_defs_offset ,class_defs_size 定位到每一个类，同时记录每一个需要记录的类
+
+地址
+
+2、根据类来找到对应的code_off
+3、根据code_off找到对应的insns[] 
+4、将3得到的insns[]使用二进制的方式保存
+5、根据2的code_off，将insns[]的第0个位置填充0x00e0 对应的smali就是  return-void 
