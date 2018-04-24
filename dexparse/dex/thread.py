@@ -15,6 +15,9 @@ def unzip(file):
             print ("found sign information")
             break
 unzip(apk)
+
+
+
     
     
 
