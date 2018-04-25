@@ -3,11 +3,12 @@ import sys
 import os
 import struct
 import binascii
+import time
 
 from class_defs import ClassDefs, DexClassDataHeader, DexField, DexMethod
 from field import FieldIdx
-from methods import MethodIdx
-from paramters import ProtoParameter
+from methods import DexMethodIdx
+from paramters import DexMethodProto
 
 '''
 unsigned char uint8_t;
@@ -67,13 +68,14 @@ http://mybeibei.net/1103.html
 
 print("解析dex文件内容")
 
-TEST_DEXFILE = 'MyHide.dex'
+# 'classes.dex.hidden'#'classes.dex' #'MyHide.dex'
+TEST_DEXFILE = sys.path[0] + os.sep + 'dexfile' + os.sep + 'MyHide.dex'
 
 
 class DexHeader():
 
     def __init__(self):
-        self.dexfile = sys.path[0] + os.sep + TEST_DEXFILE
+        self.dexfile = TEST_DEXFILE
         if not os.path.isfile(self.dexfile):
             raise Exception(
                 "{} is not file or not exists".format(self.dexfile))
@@ -89,17 +91,22 @@ class DexHeader():
         # 2018-04-23添加标记方法输出
         self.is_method_print = False
 
+        self.open_debug = False  # 用于打印出输出日志信息 True表示开启 False表示关闭
+
     def get_method_code_off_list(self):
         return self.method_code_off
 
     def mprint(self, tag, msg, log_type=1):
-        if log_type == self.log_type_debug:
-            print("[DEBUG]: {} = {}  ".format(tag, msg))
-        elif log_type == self.log_type_error:
-            print('[ERROR]: {} = {}'.format(tag, msg))
+
+        if self.open_debug:
+            if log_type == self.log_type_debug:
+                print("[DEBUG]: {} = {}  ".format(tag, msg))
+            elif log_type == self.log_type_error:
+                print('[ERROR]: {} = {}'.format(tag, msg))
 
     def parse_dexheader(self):
-        print('====================parse_dexheader=========================')
+        self.mprint(
+            '', '====================parse_dexheader=========================')
         if self.fd is None:
             raise Exception("[ERROR]: filediscriptor object is None")
         # magic addr 0
@@ -166,7 +173,7 @@ class DexHeader():
         self.fd.seek(0x3c)
         self.string_idx_offset = struct.unpack(
             '<I', self.fd.read(struct.calcsize('<I')))[0]
-        self.mprint('string_idx_size', hex(self.string_idx_offset))
+        self.mprint('string_idx_offset', hex(self.string_idx_offset))
         # type_idx_size addr 0x40
         self.fd.seek(0x40)
         self.type_idx_size = struct.unpack(
@@ -232,7 +239,8 @@ class DexHeader():
         '''
         读取dex文件的string_idx的数据内容，读取string字符串的常量池
         '''
-        print('====================read string_idx_datas=========================')
+        self.mprint(
+            '', '====================read string_idx_datas=========================')
         self.mprint('string_idx_size', self.string_idx_size)
         self.mprint('string_idx_offset', self.string_idx_offset)
         if self.string_idx_size <= 0 or self.string_idx_offset <= 0:
@@ -253,7 +261,8 @@ class DexHeader():
 # #输出16进制格式
             index_id += 1
 #             break
-        print('****************************read string_idx_datas finished*******************************')
+        self.mprint(
+            '', '****************************read string_idx_datas finished*******************************')
         self.mprint('all string_item_offset ', index_id)
         if self.string_item_datas_offset_list.__len__() == self.string_idx_size:
             self.mprint('read string_item_data_offset ', 'successful')
@@ -365,6 +374,7 @@ class DexHeader():
     def read_string_item_datas(self, offset):
         '''
         读取string_items_data
+        根据offset查询出字符串的内容
         '''
 #         print ('====================read_string_item_datas=========================')
 #         offset = 746047 #测试使用超过了0x7f的值
@@ -388,6 +398,12 @@ class DexHeader():
         self.strings_datas_list.append(result)
         self.string_datas_dict[offset] = result
 
+    def get_strings_data(self):
+        """
+        返回字符串数据,返回的数据是byte对象
+        """
+        return self.strings_datas_list
+
     def read_type_idx_datas(self):
         '''
         读取dex文件的type_idx的数据内容 数据类型,每个
@@ -396,7 +412,8 @@ class DexHeader():
         u4 description ;这里指向的是string的表，表示每个类型值
         }
         '''
-        print('====================read_type_idx_datas=========================')
+        self.mprint(
+            '', '====================read_type_idx_datas=========================')
         self.type_item_list = []
         self.fd.seek(self.type_idx_offset, 0)  # 首先，保证游标读取到指定位置的首页
         index_item = 0
@@ -471,14 +488,15 @@ class DexHeader():
         '''
         读取dex文件的proto_idx的数据内容 方法原型
         '''
-        print('====================read_proto_idx_datas=========================')
+        self.mprint(
+            '', '====================read_proto_idx_datas=========================')
         self.proto_idx_obj_list = []
         self.proto_idx_obj_dict = {}
         self.fd.seek(self.proto_idx_offset, 0)
         count = 0
         fmt = 'I'
         while count < self.proto_idx_size:
-            proto_paramters = ProtoParameter()
+            proto_paramters = DexMethodProto()
             proto_paramters.shorty_idx = struct.unpack(fmt, self.fd.read(struct.calcsize(fmt)))[
                 0]  # -->string_idx_list 指向string_idx_list的索引地址
             proto_paramters.return_type_idx = struct.unpack(fmt, self.fd.read(
@@ -514,7 +532,8 @@ class DexHeader():
         '''
         读取dex文件的field_idx的数据内容
         '''
-        print('====================read_field_idx_datas=========================')
+        self.mprint(
+            '', '====================read_field_idx_datas=========================')
         self.fd.seek(self.field_idx_offset, 0)
         count = 0
         fmt_2 = 'H'
@@ -549,21 +568,24 @@ class DexHeader():
                         hex(method_idx_obj.proto_idx))
             self.mprint('method_idx_obj.name_idx',
                         hex(method_idx_obj.name_idx))
-            print('===' * 20)
+            self.mprint('', '===' * 20)
 
     def read_method_idx_datas(self):
         '''
         读取dex文件的method_idx的数据内容
         '''
-        print('====================read_method_idx_datas=========================')
+        self.mprint(
+            '', '====================read_method_idx_datas=========================')
         self.fd.seek(self.method_idx_offset, 0)
         fmt_2 = 'H'
         fmt_4 = 'I'
-        self.method_idx_list = []
+        self.method_idx_list = []  # 保存method的列表
+        # 根据index保存method的对象数据
+        # ，查找方法：从method_idx_list取出idx-->根据idx从method_idx_dict取出method，最后在查询数据
         self.method_idx_dict = {}
         count = 0
         while count < self.method_idx_size:
-            method_obj = MethodIdx()
+            method_obj = DexMethodIdx()
             method_obj.class_idx = struct.unpack(
                 fmt_2, self.fd.read(struct.calcsize(fmt_2)))[0]
             method_obj.proto_idx = struct.unpack(
@@ -574,7 +596,6 @@ class DexHeader():
             self.method_idx_dict[count] = method_obj
             count += 1
         # self.show_method_idx_item_data()
-        pass
 
     def read_class_data_item_by_class_data_off(self, class_data_off):
         if class_data_off == 0x0:
@@ -597,7 +618,7 @@ class DexHeader():
             static_field_idx += static_field_diff
             access_flags = self.read_uleb128()
             static_field_size -= 1
-            print('++++' * 20)
+            self.mprint('', '++++' * 20)
         self.mprint('instance field size ', instance_field_size)
         instance_field_idx = 0
         while instance_field_size > 0:
@@ -607,26 +628,34 @@ class DexHeader():
             instance_field_idx += instance_field_diff
             access_flags = self.read_uleb128()
             instance_field_size -= 1
-            print('----' * 20)
+            self.mprint('', '----' * 20)
         self.mprint('direct method size', direct_method_size)
         direct_method_idx = 0
         while direct_method_size > 0:
+
+            # 读取methodIdx的索引值
             direct_method_diff = self.read_uleb128()
             self.mprint('direct  method diff', hex(direct_method_diff))
-            method_idx_obj = self.method_idx_list[
-                direct_method_idx + direct_method_diff]
-            if isinstance(method_idx_obj, MethodIdx):
-                self.mprint('direct method class_idx ',
-                            method_idx_obj.class_idx)
-                self.mprint('direct method proto_idx ',
-                            self.proto_idx_obj_list[method_idx_obj.proto_idx])
-                self.mprint('direct method name_idx ',
-                            self.strings_datas_list[method_idx_obj.name_idx])
+            #需要更改这个索引你列表的值，
+            tmp=direct_method_idx + direct_method_diff
+            self.find_method_name_by_idx(tmp)
+            # method_idx_obj = self.method_idx_list[
+            #     direct_method_idx + direct_method_diff]
+            # if isinstance(method_idx_obj, DexMethodIdx):
+            #     self.mprint('direct method class_idx ',
+            #                 method_idx_obj.class_idx)
+            #     self.mprint('direct method proto_idx ',
+            #                 self.proto_idx_obj_list[method_idx_obj.proto_idx])
+            #     self.mprint('direct method name_idx ',
+            #                 self.strings_datas_list[method_idx_obj.name_idx])
             direct_method_idx += direct_method_diff
+
+            # 访问标志
             access_flags = self.read_uleb128()
             self.mprint('direct  method access_flags ', hex(access_flags))
-            self.is_method_print = True
+            # self.is_method_print = True
             self.mprint('calling method ------<<<<', self.is_method_print)
+            # 读取指令偏移地址
             code_off = self.read_uleb128()
             self.is_method_print = False
             self.mprint('direct method code_off ', hex(code_off))
@@ -635,7 +664,7 @@ class DexHeader():
 #                 self.read_code_item_code(code_off)
 #                 self.fd.seek(code_off,0)
             direct_method_size -= 1
-            print('====' * 20)
+            self.mprint('', '====' * 20)
         self.mprint('virtual method size', virtual_method_size)
         virtal_method_idx = 0
         while virtual_method_size > 0:
@@ -650,7 +679,7 @@ class DexHeader():
 #                 self.read_code_item_code(code_off)
             self.mprint('virtual method code_off ', hex(code_off))
             virtual_method_size -= 1
-            print('--**--' * 20)
+            self.mprint('', '--**--' * 20)
 
     def read_code_item_code(self, code_off):
         '''
@@ -680,11 +709,21 @@ class DexHeader():
 
     def read_class_defs(self):
         '''
-        读取类型信息 ************************************************************************
+        读取类型信息：根据class_defs读取出每个类
+        要求输出对应的类型：
+        className:完整的类名  com/xxx/xxx/AAA
+        class_def_item_off:对应类名地址
+        methodName:方法名称 例如：showMe
+        methodCodeOff: 方法地址偏移
+        methodInsArr:指令集数组
         '''
         count = 0
+
         while count < self.class_defs_idx_size:
-            self.fd.seek(self.class_defs_idx_offset + count * 32)
+
+            class_def_item_off = self.class_defs_idx_offset + count * 32
+
+            self.fd.seek(class_def_item_off)
             class_idx,\
                 access_flags,\
                 superclass_idx,\
@@ -693,17 +732,111 @@ class DexHeader():
                 annotations_off,\
                 class_data_off,\
                 static_values_off = struct.unpack("IIIIIIII", self.fd.read(32))
+
+            #
+            # -->stringsIds[typeIds[idx]]-->strings_ids_dict[stringsIds[typeIds[idx]]]
             self.mprint('class', self.type_item_list[class_idx])
+            # print('class idx ', self.type_item_list[class_idx])
+            # print('class  type idx ', self.type_item_list[class_idx])
+            class_name = self.find_class_name_by_idx(class_idx)
+            print('class string  idx ', class_name)
             count += 1
+
             self.read_class_data_item_by_class_data_off(
                 class_data_off)  # 读取class_data_item
+        print('all class:', count)
+
+    def find_string_value(self, idx):
+        """
+        根据idx读取string的值
+        """
+        off=self.string_item_datas_offset_list[idx]
+        return self.string_datas_dict[off]
+
+        pass
+
+    def find_class_name_by_idx(self, idx):
+        """
+        查找type类型:查找idx查询字符串内容
+        根据idx的值，查找字符串内容
+        这里主要查询的是className和methodName
+
+        如下
+        #strind_idx=typeIds[class_idx]
+        #string_offset=string_ids[strind_idx]
+        #根据string_offset得到string
+        #class_name=string_ids_dict[string_offset]
+        """
+
+        off = self.string_item_datas_offset_list[self.type_item_list[idx]]
+        return self.string_datas_dict[off]
+
+    def find_method_proto_by_idx(self, idx):
+        """
+        根据idx查询方法的原型，例如()V或者(III)Z等
+        """
+        print('==' * 10)
+        print('DexMethodProto,idx:', idx)
+        for proto in self.proto_idx_obj_list:
+
+            shorty_idx = proto.shorty_idx
+            returnTypeIdx = proto.return_type_idx
+            parameters_off = proto.parameter_type_offset
+            print('shorty_idx:', shorty_idx)
+            print('returnTypeIdx:', returnTypeIdx)
+            print('parameters_off:', parameters_off)
+            print('--' * 5)
+
+        # print('method_idx_diff:',idx)
+        # index=self.proto_idx_obj_list[idx] #
+        # print('shorty_idx:',index.shorty_idx)
+        # print('return_type_idx:',index.shorty_idx)
+        # # print('shorty_idx:',index.shorty_idx)
+
+        # idx ==>DexMethodProto -->
+        # dexmethod_proto=self.proto_idx_obj_dict[idx]
+
+        # class_name=self.find_class_name_by_idx(dexmethod_proto.shorty_idx)
+        # rtype_off=strings_datas_list[self.type_item_list[dexmethod_proto.return_type_idx]]
+        # rtype=string_datas_dict[rtype_off]
+
+        # print('method ,classname:',class_name)
+        # print('method,rtype:',rtype)
+
+        pass
+
+    def find_method_name_by_idx(self, idx):
+        """
+        根据idx查询method的名称和所属于的类
+        这里的idx是从
+        class_data_off-->dexmethod-->method_idx-->DexMethodIdx--{class_idx,proto_idx,name}
+
+        method=method_is[idx]
+        proto=proto_idx[method.proto_idx]
+        className=find_class_name_by_idx(method.idx)
+        methodname=strinds_datas_dict[strings_idx[method.name]]
+        """
+        # print(type(idx))
+        # self.find_method_proto_by_idx(idx)
+        dex_method_idx = self.method_idx_list[idx]
+        short_class_idx = dex_method_idx.class_idx
+        name_idx = dex_method_idx.name_idx
+        proto_idx = dex_method_idx.proto_idx  # 根据这个值，读取方法原型表
+
+        print('==='*10)
+        print('method idx:',idx)
+        print('short_class_idx：', self.find_class_name_by_idx(short_class_idx))
+        print('name_idx', self.find_string_value(name_idx))
+        print('name_idx idx:',name_idx)
+        # print('short_class_idx：', self.find_class_name_by_idx(short_class_idx))
         pass
 
     def read_class_defs_idx_data(self):
         '''
         读取class_defx_idx数据内容,读取有问题，暂时不适用
         '''
-        print('====================read_class_defs_idx_data=========================')
+        self.mprint(
+            '', '====================read_class_defs_idx_data=========================')
         self.mprint('offset', hex(self.class_defs_idx_offset))
         self.fd.seek(self.class_defs_idx_offset, 0)
 
@@ -744,10 +877,8 @@ class DexHeader():
         #         print('--*--'*20)
         #     pass
         for count_idx in self.class_def_item_dict.keys():  # 使用字典的方式输出
-
             self.mprint('class_idx_count', count_idx)
             item = self.class_def_item_dict[count_idx]
-
             if isinstance(item, ClassDefs):
 
                 self.mprint('class_idx ', hex(item.class_idx))
@@ -833,6 +964,7 @@ class DexHeader():
     def read_class_data_item(self, class_data_off):
         '''
         解析出class_data_off的数据值
+        方法错误：暂时不用
         '''
         self.fd.seek(class_data_off, 0)
         fmt_2 = 'H'
@@ -959,7 +1091,7 @@ class DexHeader():
                         hex(virtual_dexmethod.access_flags))
             self.mprint('virtual_dexmethod.code_off',
                         hex(virtual_dexmethod.method_idx))
-            print('--**--' * 20)
+            # print('--**--' * 20)
 
 #         class_data_header_off = struct.unpack(fmt_4,self.fd.read(struct.calcsize(fmt_4)))[0]
 #         self.mprint('class_data_header_off', hex(class_data_header_off))
@@ -995,8 +1127,8 @@ def print_code_off(code_off_list):
     首先读取方法指令的长度:insns_size 方法指令集是两个字节一组ushort类型
     其次读取指令集：insns[0],
     '''
-    dex = sys.path[0] + os.sep + "MyHide.dex"
-    with open(dex, 'rb') as fd:
+    # dex = sys.path[0] + os.sep + "MyHide.dex"
+    with open(TEST_DEXFILE, 'rb') as fd:
         for code_off in code_off_list:
 
             fd.seek(code_off, 0)
@@ -1051,20 +1183,35 @@ def fix_dex_header(dexfile):
     pass
 
 
-dexheader = DexHeader()
-dexheader.parse_dexheader()
-dexheader.read_string_idx_datas()
-dexheader.read_type_idx_datas()
-dexheader.read_proto_idx_datas()
-dexheader.read_field_idx_datas()
-dexheader.read_method_idx_datas()
-dexheader.read_class_defs()
-# dexheader.read_class_defs_idx_data()
+def main():
 
-dexheader.close_dexreader()
-method_code_off = dexheader.get_method_code_off_list()
-print('888888888888888888888888888')
-print(method_code_off)
-print_code_off(method_code_off)
+    start_time = time.time()
+    dexheader = DexHeader()
+    dexheader.parse_dexheader()
+    dexheader.read_string_idx_datas()
+    dexheader.read_type_idx_datas()
+    dexheader.read_proto_idx_datas()
+    dexheader.read_field_idx_datas()
+    dexheader.read_method_idx_datas()
+    dexheader.read_class_defs()
+    # 这里方法读取
+    # dexheader.read_class_defs_idx_data()
+    strings_data = dexheader.get_strings_data()
 
-# 关闭资源
+    dexheader.close_dexreader()
+    print('cost time:', time.time() - start_time)
+
+    # print('**' * 20)
+    # for string_item in strings_data:
+    #     print(string_item)
+
+    # print('===' * 20)
+    # method_code_off = dexheader.get_method_code_off_list()
+    # print('insns_code :')
+    # print(method_code_off)
+    # print_code_off(method_code_off)
+
+    # 关闭资源
+
+if __name__ == '__main__':
+    main()

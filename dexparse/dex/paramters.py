@@ -1,7 +1,7 @@
 #-*- coding:UTF-8 -*-
 
 
-class ProtoParameter(object):
+class DexMethodProto(object):
 
     def __init__(self):
         self.shorty_idx = 0
