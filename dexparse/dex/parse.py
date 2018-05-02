@@ -5,12 +5,17 @@ import struct
 import binascii
 import time
 import re
+import array
+import zlib
+import hashlib
 
 from class_defs import ClassDefs, DexClassDataHeader, DexField, DexMethod
 from field import FieldIdx
 from methods import DexMethodIdx
 from paramters import DexMethodProto
 from settings import *
+
+from opcode import Opcodes
 
 '''
 unsigned char uint8_t;
@@ -71,7 +76,8 @@ http://mybeibei.net/1103.html
 print("解析dex文件内容")
 
 # 'classes.dex.hidden'#'classes.dex' #'MyHide.dex' hidex.dex
-TEST_DEXFILE = sys.path[0] + os.sep + 'dexfile' + os.sep + 'MyHide.dex'
+TEST_DEXFILE = sys.path[0] + os.sep + 'dexfile' + os.sep + 'hidex.dex'
+# TEST_DEXFILE =  'tmp_modified.dex'
 
 
 class DexHeader():
@@ -96,6 +102,10 @@ class DexHeader():
         self.open_debug = False  # 用于打印出输出日志信息 True表示开启 False表示关闭
 
     def get_method_code_off_list(self):
+        """
+        返回的数据：list=[(codeoff,code_insns_size)]
+        [(228, 4), (252, 1), (272, 1)]
+        """
         return self.method_code_off
 
     def mprint(self, tag, msg, log_type=1):
@@ -663,7 +673,7 @@ class DexHeader():
             self.is_method_print = False
             self.mprint('direct method code_off ', hex(code_off))
             # 这里要把文件读取的游标对象保存记录地址，方便读取一个code的时候，直接返回到当前位置，下一次读取就不会出现异常
-            self.method_code_off.append(code_off)
+            # self.method_code_off.append(code_off) #更改到读取指令位置，添加指令数据地址和长度
             # 打印出指令码
             self.read_code_item_code(code_off)
 #                 self.fd.seek(code_off,0)
@@ -716,7 +726,13 @@ class DexHeader():
             method_insns_size = struct.unpack(fmt_4, fp.read(4))[0]  # 方法指令长度
             self.mprint('insns_code_size', hex(method_insns_size))
             print('insns_code_size:', hex(method_insns_size))
-
+            # 在这里添加了指令codeItem地址和指令的长度
+            if method_insns_size > 1:
+                """
+                只需要取出指令长度超过2个以上的
+                """
+                tmp_data = (code_off, method_insns_size)
+                self.method_code_off.append(tmp_data)
             count = 0
             while method_insns_size > 0:
                 insns_code = struct.unpack(fmt_2, fp.read(2))[0]  # 方法指令
@@ -1168,6 +1184,7 @@ class DexHeader():
 
 #####
 
+
 def print_code_off(code_off_list):
     '''
     打印指令放法指令
@@ -1192,13 +1209,13 @@ def print_code_off(code_off_list):
             print('***' * 20)
             print('code off', hex(code_off))
             print('insns_code_size', hex(method_insns_size))
-            tmp_ins=[]
+            tmp_ins = []
             while method_insns_size > 0:
                 insns_code = struct.unpack(fmt_2, fd.read(2))[0]  # 方法指令
                 print('insns_code', hex(insns_code))
                 tmp_ins.append(insns_code)
                 method_insns_size -= 1
-            print('code min:',min(method_insns_size*2,4))
+            print('code min:', min(method_insns_size * 2, 4))
 
 
 def modified_dec_code_ins(codeoff, fd=None):
@@ -1222,14 +1239,79 @@ def modified_dec_code_ins(codeoff, fd=None):
         # 根据size
 
 
-def fix_dex_header(dexfile):
+def fix_dex_header(buff):
     """
     重新计算修改过的dex文件：
     checksum:
     sha-1:
+
+    修改后:tmp_modified.dex头部信息不正确，需要修复
+    无效的DEX checksum (预期值为53E045D4,实际值为40E84715)
+    无效的DEX签名(预期值为BC 7F BA 36 3E 94 22 16 56 76 D9 6D 75 E9 BB 49 FB A0 E7 9A ,
+    实际值为DA 39 A3 EE 5E 6B 4B 0D 32 55 BF EF 95 60 18 90 AF D8 07 09 )
+    """
+    # 计算除了magic+checksum的数据值
+    print('modified dex header check :')
+    sha_1 = hashlib.sha1()
+    sha_1.update(buff[32:])  # 出去magic checksum signture就是
+    result = sha_1.hexdigest()
+    print('sha1:', result)
+    print('sha1 len:', len(result))
+
+    assert (40 == len(result))
+    signature = []
+    for i in range(20):
+        signature.append(int(result[i * 2:(i * 2) + 2], 16))
+
+    # 重新计算sha1 也就是signature
+    # print(len(signature))
+    struct.pack_into('B' * 20, buff, 12, *signature)
+    # 重新计算checksum
+    checksum = zlib.adler32(buff[12:], 1)
+    result_checksum = hex(checksum)
+    print('checksum1:', hex(checksum))
+    print('checksum2:', checksum % (2**32))
+    print('---' * 40)
+    # 会写checksum
+    struct.pack_into('I', buff, 8, checksum)
+
+
+def check_dexheader(buff):
+    """
+    校验dexfile的头部
     """
 
     pass
+
+
+def save_modified_dexfile(buff, savefile):
+    """
+    保存修改的dexfile 
+    buff:打开的dexfile的流对象
+    savefile:需要保存的新的dexfile文件名称
+
+    """
+    open(savefile, 'wb').write(buff)
+    print('savefile done !!!')
+
+    pass
+
+
+def hide_code_item_insns(codeitems):
+    """
+    隐藏指令
+    """
+
+    buff = array.array('B', open(TEST_DEXFILE, 'rb').read())
+    # codeitems = [228]
+    test_opcode = Opcodes(buff, codeitems)
+    test_opcode.extract_opcode('tmp.bin')
+    test_opcode.fill_empty_code()
+
+    # 修复头部
+    fix_dex_header(buff)
+    # 保存修改的文件
+    save_modified_dexfile(buff, 'tmp_modified.dex')
 
 
 def main():
@@ -1248,19 +1330,29 @@ def main():
     strings_data = dexheader.get_strings_data()
 
     dexheader.close_dexreader()
-    print('cost time:', time.time() - start_time)
 
-    # print('**' * 20)
-    # for string_item in strings_data:
-    #     print(string_item)
+    #输出dex文件的字符串
+    print('**' * 20)
+    for string_item in strings_data:
+        print(string_item)
 
     # print('===' * 20)
-    # method_code_off = dexheader.get_method_code_off_list()
-    method_code_off = [228]#dexheader.get_method_code_off_list()
-    print('insns_code :')
-    print(method_code_off)
-    print_code_off(method_code_off)
+    method_code_off1 = dexheader.get_method_code_off_list()
 
+    # 抽取指令
+    hide_code_item_insns(method_code_off1)
+
+    print('cost time:', time.time() - start_time)
+
+    #输出指令
+    # print('--' * 20)
+    # print(method_code_off1)
+    # print('--' * 20)
+
+    # method_code_off = [228]  # dexheader.get_method_code_off_list()
+    # print('insns_code :')
+    # print(method_code_off)
+    # print_code_off(method_code_off)
     # 关闭资源
 
 if __name__ == '__main__':

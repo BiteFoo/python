@@ -44,10 +44,12 @@ def modified_bin():
     print(buff)
     # fmt='B'*2 #需要修改的数据B unsigned char  'B'*4 =='BBBB'
     # args=[6,7,8,9] #需要修改的数据值，注意，这里只需把原始数据填入，不能是更改的过的数据，不用使用struct.pack(fmt,data)
+    # ins=['0xe0','0x00','0x00','0x00']
+    ins=[0xe0,0x00,0x00,0x00]
+    args=map(ord,ins)
     try:
        ##更改内容，
-       #
-        struct.pack_into('B'*2,buff,off,*args)
+        struct.pack_into('B'*2*0x4,buff,off,*args)
     except Exception as e:
         raise e
     # fp.close()

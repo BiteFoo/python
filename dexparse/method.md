@@ -1,7 +1,7 @@
 
 ##流程：
 
-#####1、extract dexcode ins[0] == empty dexfile (progressing)
+#####1、extract dexcode ins[0] == empty dexfile (done)
 注：也要过滤掉不需要的方法，有些方法不能做修改，例如<init>
 
 1.根据dexfile获取到指定的类方法读取指令内容，根据codeoff的地址做指令抽取：
@@ -57,16 +57,29 @@ ins[6]=0x0000
 ins[...]=0x0000
 
 
-######2、fix empty dexfile (waiting) fix_dexfile
+######2、fix empty dexfile (done) fix_dexfile
 
+抽取后的dexfile，其checksum和sha1的值不正确，需要从新计算，
+首先计算出sha1的值，写入到dexfile内
+然后计算checksum
+
+1、fix signature（也就是通过sha1来计算）
+跳过dexheader的magic checksum signature余下的整个sha
+2、fix checksum
+跳过dexheader的magic和checksum字段，跳过前alder32(dexheader[magic+checksum:])
+
+
+注：如果不修正更改多的dex文件，那么在使用010Editor打开会出方法和一些错乱值。具体可以查看tmp_modified.dex和tmp/tmp_modified.dex文件
+这里使用修正的工具是52上下载的DexFixer.
+
+##2018-05-02功能完成：
+dex指令抽取和修改后的dex文件修复
+hidex_dex_ins和fix_dex_header 以及save_modified_dex 三个函数完成
 
 ######3、memory load fix_dexfile(wating)
 
 
 ######4、testing (waiting)
-
-
-
 
 
 ###记录测试
